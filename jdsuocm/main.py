@@ -67,7 +67,6 @@ def main (*margs):
             password = RSAKey.from_private_key_file(args.device_key)
         else:
             password = args.device_password
-        # "2003:1a3b:ffe0:101::e32f",
         jdsu = device.RemoteOCM(args.device_host,
                                 args.device_name,
                                 username=args.device_username,
