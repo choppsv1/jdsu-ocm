@@ -37,5 +37,6 @@ setup (name='jdsuocm',
        license='Apache License, Version 2.0',
        install_requires=required,
        url='https://github.com/choppsv1/jdsu-ocm',
-       entry_points={ "console_scripts": [ "jdsu-scan = jdsuocm.scan:main", ]},
+       entry_points={ "console_scripts": [ "jdsu-scan = jdsuocm.scan:main",
+                                           "jdsu-server = jdsuocm.main:main" ]},
        packages=['jdsuocm'])
