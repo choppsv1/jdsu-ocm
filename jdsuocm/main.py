@@ -20,6 +20,7 @@
 from __future__ import absolute_import, division, unicode_literals, print_function, nested_scopes
 import argparse
 import logging
+import os
 import sys
 from paramiko import RSAKey
 import jdsuocm.device as device
@@ -53,6 +54,10 @@ def main (*margs):
     # Mutually exclusive
     if args.device_password and args.device_key:
         logger.critical("Can't specify both --device-key and --device-password")
+        sys.exit(1)
+
+    if not args.server_host_key or not os.path.exists(os.path.expanduser(args.server_host_key)):
+        logger.critical("Server host ssh key required.")
         sys.exit(1)
 
     if not args.device_host:
