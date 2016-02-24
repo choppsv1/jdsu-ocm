@@ -27,7 +27,7 @@ from sshutil.host import Host
 from sshutil.conn import SSHCommandSession
 from opticalutil.power import Power, Gain
 from opticalutil.dwdm import frequency_to_wavelen
-from jdsu.error import OCMError, get_error_result
+from jdsuocm.error import OCMError, get_error_result
 
 logger = logging.getLogger(__name__)
 
@@ -568,7 +568,7 @@ class RemoteOCM (OCM):
         self.host = jdsu_host
 
         # Copy latest sercat
-        sercat_path = resource_filename(Requirement.parse("jdsu"), "jdsu/sercat.py")
+        sercat_path = resource_filename(Requirement.parse("jdsuocm"), "jdsuocm/sercat.py")
         assert os.path.exists(sercat_path)
         rhost = Host(jdsu_host, username=username, password=password, debug=debug)
         rhost.copy_to(sercat_path, "./sercat.py")

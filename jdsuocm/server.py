@@ -21,14 +21,13 @@ from __future__ import absolute_import, division, unicode_literals, print_functi
 import logging
 import os
 import threading
-from pkg_resources import Requirement, resource_filename
 
 import netconf.util as ncutil
 import netconf.error as ncerror
 import netconf.server as server
 from netconf import nsmap_update, NSMAP, qmap
 
-import jdsu.error as error
+import jdsuocm.error as error
 
 nsmap_update({'j': "urn:TBD:params:xml:ns:yang:terastream:jdsu"})
 
@@ -45,7 +44,6 @@ class NetconfServer (object):
         #-----------------
         self.debug = debug
 
-        datapath = resource_filename(Requirement.parse("jdsu"), "data")
         host_key_path = os.path.expanduser(host_key)
         assert os.path.exists(host_key_path)
 

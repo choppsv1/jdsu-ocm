@@ -28,7 +28,7 @@ required = [
 def read(fname):
     return open(os.path.join(os.path.dirname(__file__), fname)).read()
 
-setup (name='jdsu',
+setup (name='jdsuocm',
        version='0.1.0',
        description='JDSU OCM',
        long_description=read("README.rst"),
@@ -36,6 +36,6 @@ setup (name='jdsu',
        author_email='chopps@gmail.com',
        license='Apache License, Version 2.0',
        install_requires=required,
-       url='https://github.com/choppsv1/jdsu',
-       entry_points={ "console_scripts": [ "jdsu-scan = jdsu.scan:main", ]},
-       packages=['jdsu'])
+       url='https://github.com/choppsv1/jdsu-ocm',
+       entry_points={ "console_scripts": [ "jdsu-scan = jdsuocm.scan:main", ]},
+       packages=['jdsuocm'])

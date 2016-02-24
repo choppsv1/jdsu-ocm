@@ -22,8 +22,8 @@ import argparse
 import logging
 import sys
 from paramiko import RSAKey
-import jdsu.device as device
-import jdsu.server as server
+import jdsuocm.device as device
+import jdsuocm.server as server
 
 
 def main (*margs):
