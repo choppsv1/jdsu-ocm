@@ -1,0 +1,191 @@
+//-*- coding: utf-8; fill-column: 69; evil-shift-width: 2; -*-
+//
+// October 11 2015, Christian Hopps <chopps@gmail.com>
+//
+// Copyright (c) 2015-2016, Deutsche Telekom AG.
+// All Rights Reserved.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+module jdsu-ocm {
+  namespace "urn:TBD:params:xml:ns:yang:terastream:jdsu-ocm";
+  prefix ts;
+  import ietf-inet-types { prefix inet; }
+
+  organization
+    "T-Systems.";
+  contact
+    "Christian Hopps <christian.hopps@t-systems.com>";
+  description
+    "Terastream module.";
+  revision 2015-10-11 {
+    reference "None.";
+  }
+
+  typedef ocm-type {
+    description
+      "The type of OCM (1, 2, or 4 port).";
+    type enumeration {
+      enum ocm-1-port {
+        description "A single port JDSU OCM.";
+      }
+      enum ocm-2-port {
+        description "A dual port JDSU OCM.";
+      }
+      enum ocm-4-port {
+        description "A quad port JDSU OCM.";
+      }
+    }
+  }
+
+  typedef oper-mode {
+    description
+      "The operation mode of the device.";
+    type enumeration {
+      enum safe-mode {
+        description "Operating in safe mode.";
+      }
+      enum application-mode {
+        description "Operating in application mode.";
+      }
+    }
+  }
+
+  container info {
+    leaf oper-mode {
+      type oper-mode;
+      config false;
+      description
+        "Operating mode of the device.";
+    }
+
+    leaf ident-data {
+      type string;
+      config false;
+      description
+        "Identifying data queried from the device.";
+    }
+
+    leaf device-info {
+      type string;
+      config false;
+      description
+        "Information on the OCM module.";
+    }
+
+    leaf safe-version {
+      type string;
+      config false;
+      description
+        "Version of the safe image.";
+    }
+
+    leaf application-version {
+      type string;
+      config false;
+      description
+        "Version of the application image.";
+    }
+    leaf temp {
+      type int32;
+      config false;
+      description
+        "The temperature of the device in tenths of centigrade";
+    }
+  }
+
+  list channel-profile {
+    key "profile-index";
+    config true;
+    leaf profile-index {
+      type uint8 {
+        range 1..16;
+      }
+    }
+    list channel {
+      key "frequency-start frequency-end";
+      // It sucks to have to define a key b/c we have something more
+      // complex than a type here, we should be able to use a
+      // leaf-list with a container type.
+      leaf frequency-start {
+        type uint32;
+      }
+      leaf frequency-end {
+        type uint32;
+      }
+    }
+  }
+
+  rpc self-test {
+    description
+      "Run self-test on the device";
+  }
+
+  rpc activate {
+    description
+      "Activate to application-mode from safe-mode";
+  }
+
+  rpc reset {
+    description
+      "Perform a soft-reset on the device";
+  }
+
+  rpc full-scan {
+    output {
+      list port {
+        key "port-index";
+        description
+          "A port on the OCM.";
+
+        leaf port-index {
+          type uint8;
+          mandatory true;
+          description
+            "Zero-based index of the port.";
+        }
+
+        list point {
+          key "frequency";
+          description
+            "A power reading at a given frequency";
+
+          leaf frequency {
+            type uint32;
+            description
+              "Frequency in 100MHz";
+          }
+          leaf power {
+            type decimal64 {
+              fraction-digits 2;
+            }
+            description
+              "Power in dBm";
+          }
+        }
+      }
+    }
+  }
+
+//   list port {
+//     key "port"
+//     description
+//       "A port on the OCM.";
+
+//     leaf port-index {
+//       type uint;
+//       mandatory true;
+//       description
+//         "Zero-based index of the port.";
+//     }
+//   }
+}
