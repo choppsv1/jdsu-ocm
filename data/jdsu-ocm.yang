@@ -1,4 +1,4 @@
-//-*- coding: utf-8; fill-column: 69; evil-shift-width: 2; -*-
+//-*- coding: utf-8; fill-column: 69; evil-shift-width: 2; c-basic-offset: 2; -*-
 //
 // October 11 2015, Christian Hopps <chopps@gmail.com>
 //
@@ -44,6 +44,12 @@ module jdsu-ocm {
       enum ocm-4-port {
         description "A quad port JDSU OCM.";
       }
+      enum tf-ocm-1-port {
+        description "A single port JDSU TF-OCM.";
+      }
+      enum unknown {
+        description "Unkown device type";
+      }
     }
   }
 
@@ -61,6 +67,12 @@ module jdsu-ocm {
   }
 
   container info {
+    leaf ocm-type {
+      type ocm-type;
+      config false;
+      description
+        "Type of the device.";
+    }
     leaf oper-mode {
       type oper-mode;
       config false;
@@ -137,10 +149,13 @@ module jdsu-ocm {
 
   rpc reset {
     description
-      "Perform a soft-reset on the device";
+      "Perform a soft-reset on the device that support
+       it otherwise reset settings to factory defaults";
   }
 
+
   rpc full-scan {
+    description "A full scan of the frequencies"
     output {
       list port {
         key "port-index";
@@ -176,6 +191,101 @@ module jdsu-ocm {
     }
   }
 
+  rpc full-125-scan {
+    description "A full scan of the frequencies"
+    output {
+      list port {
+        key "port-index";
+        description
+          "A port on the OCM.";
+
+        leaf port-index {
+          type uint8;
+          mandatory true;
+          description
+            "Zero-based index of the port.";
+        }
+
+        list point {
+          key "frequency";
+          description
+            "A power reading at a given frequency";
+
+          leaf frequency {
+            type uint32;
+            description
+              "Frequency in 100MHz";
+          }
+          leaf power {
+            type decimal64 {
+              fraction-digits 2;
+            }
+            description
+              "Power in dBm";
+          }
+        }
+      }
+    }
+  }
+
+  rpc full-itu-scan {
+    when "../info/ocm-type" == tf-ocm-1-port;
+    input {
+      leaf high-resolution {
+        type bool;
+        description "True if high resolution results should be returned.";
+        default False;
+      }
+      leaf detect-presence {
+        type bool;
+        description "True channel presence should be detected.";
+        default False;
+      }
+    }
+    output {
+      list point {
+        key "frequency";
+        description
+          "A power reading at a given frequency";
+        leaf frequency {
+          type uint32;
+          description
+            "Frequency in 100MHz";
+        }
+        leaf power {
+          type decimal64 {
+            fraction-digits 2;
+          }
+          description
+            "Power in dBm";
+        }
+        leaf channel-presence {
+          type uint16;
+          description
+            "Channel presence, True if channel detected and result requested."
+        }
+      }
+    }
+  }
+
+  rpc get-frequency-power {
+    input {
+      leaf frequency {
+        type uint32;
+        description
+          "Frequency in 100MHz";
+      }
+    }
+    output {
+      leaf power {
+        type decimal64 {
+          fraction-digits 2;
+        }
+        description
+          "Power in dBm";
+      }
+    }
+  }
 //   list port {
 //     key "port"
 //     description

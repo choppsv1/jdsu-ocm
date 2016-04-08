@@ -26,8 +26,9 @@ from pkg_resources import Requirement, resource_filename
 from sshutil.host import Host
 from sshutil.conn import SSHCommandSession
 from opticalutil.power import Power, Gain
-from opticalutil.dwdm import frequency_to_wavelen
+from opticalutil.dwdm import frequency_to_wavelen_precise, wavelen_to_frequency
 from jdsuocm.error import OCMError, get_error_result
+import jdsuocm.error as jerror
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +60,11 @@ MAXRESPLEN = 41004
 MINCMDLEN = 5                                                 # + 2 for frame
 MAXCMDLEN = 100
 
+TFOCM_DEFAULT_START_FREQ = 190700
+TFOCM_DEFAULT_STOP_FREQ = 190700 + (128 * 50)
+
+DEVTYPE_4PORT = 0
+DEVTYPE_TFOCM = 1
 
 """
 for 12.5GHz wide scan every 6.25Ghz, total 839 slices
@@ -114,7 +120,8 @@ PROFILE_ID_TAG = -1
 PORT_NUM_TAG = -2
 INST_MAP_TAG = -3
 
-commands = {
+# Command, Object ID, Instance, Parameter ID, Has Data Params, Response Length
+commands_common = {
     'START-SELF-TEST':    (1, 0, 1, 1, False, RESP_0W),
     'READ-FAIL-REG':      (2, 0, 1, 0, False, RESP_1W),
     'READ-FAIL-REG-TEMP': (2, 0, 2, 0, False, RESP_2W),
@@ -123,9 +130,32 @@ commands = {
     'DOWNLOAD':           (1, 3, 1, 1, True, RESP_0W),
     'GET-IDN-MSG':        (2, 4, 1, 0, False, RESP_VAR),
     'GET-MODULE-TEMP':    (2, 5, 1, 0, False, RESP_1W),
-    'GET-APP-VERSION':   (2, 10, 1, 0, False, RESP_3W),
-    'GET-SAFE-VERSION':  (2, 10, 2, 0, False, RESP_3W),
+    'GET-APP-VERSION':    (2, 10, 1, 0, False, RESP_3W), # 1-port is called get firmware version for both images
     'GET-MODULE-INFO':    (2, 11, 1, 0, False, RESP_VAR),
+
+
+    # XXX this is only in the 4 port!
+    'RESET':              (1, 79, 1, 1, False, RESP_0W),
+
+}
+
+commands_1port = {
+    # Only on single port
+    # 6, 6, 7, 7, 8, 8
+    # 1-port only
+    # 21, 21 - 24, 24, 25, 26, 26, 26, 27 - 29, 31, 32, 32 - 36, 36, 37, 38, 38, 39, 40, 40, 41, 41,
+    # 44, 44, 42, 43, 47, 48, 49, 51 - 54
+
+    # data parameter 0 or 1 for low vs high res 512 words of data
+    'GET-RAW-POWER-DATA':  (2, 26, 6, 0, True, RESP_VAR),
+    'GET-SINGLE-POWER':    (1, 28, 1, 1, True, RESP_VAR),
+    'FULL-ITU-SCAN':       (1, 31, 1, 1, True, RESP_VAR),   # This is the peak measure function
+    'FULL-ITU-POWER-SCAN': (1, 37, 1, 1, True, RESP_VAR),   # Simple power function
+    'SCAN-ITU-GAUSS-FIT':  (1, 27, 1, 1, True, RESP_VAR),
+    'SET-FACTORY-DEFAULT': (1, 39, 1, 1, False, RESP_0W),
+}
+commands_4port = {
+    'GET-SAFE-VERSION':   (2, 10, 2, 0, False, RESP_3W),
     'READ-PREV-CMD':      (2, 18, 4, 0, False, RESP_11W),
     'RESET':              (1, 79, 1, 1, False, RESP_0W),
     'CALIB-INIT':         (1, 14, 1, 1, False, RESP_0W),
@@ -200,7 +230,12 @@ def unpack_data_words (wordstring):
 
 
 def unpack_data_string (wordstring):
-    return wordstring.decode('ascii')
+    # XXX look for NUL?
+
+    nullidx = wordstring.find(0)
+    if nullidx == -1:
+        nullidx = len(wordstring)
+    return wordstring[:nullidx].decode('ascii')
 
 
 def unpack_signed_unsigned(data):
@@ -229,7 +264,7 @@ def get_next_msgid ():
 get_next_msgid.next = 1
 
 
-def send_cmd(jdsu, cmdname, data=b"", instance=None, debug=False):
+def send_cmd(jdsu, commands, cmdname, data=b"", instance=None, debug=False):
     cmdinfo = commands[cmdname]
     cmd = list(cmdinfo[0:4])
     if cmd[2] == INST_MAP_TAG:
@@ -270,21 +305,64 @@ class OCM (object):
         self.debug = debug
         assert not self.drain_serial_read_queue()
 
+        # single port safe: [u'JDSU', u'TFOCM', u'50GHz', u'safe00.04.68']
+        # single port app:  [u'JDSU', u'TFOCM', u'50GHz', u'hw46', u'cal02', u'appfw03.08.94']
+
+        self.commands = dict(commands_common.items())
+
         idn = self.get_idn_data()
-        if idn[2] != "SafeImage":
+        if idn[4] == 'cal04':
+            self.devtype = DEVTYPE_4PORT
+            self.nports = 4
+            self.commands.update(commands_4port.items())
+        else:
+            self.devtype = DEVTYPE_TFOCM
+            self.nports = 1
+            self.commands.update(commands_1port.items())
+
+        # reset the device on init, only works on 4 port.
+        # For tf-ocm though we reset to factory default a poor man's reset
+        if not self.is_safe_mode(idn):
             # Reset the device on open.
             self.reset()
 
-        self.activate()
+        # Activate to application software if we are safe mode
+        idn = self.get_idn_data()
+        if self.is_safe_mode(idn):
+            self.activate()
+
+        # Add in device specific commands
         self.self_test()
-        # print(self.get_module_info())
+
+        # # print(self.get_module_info())
         # print(str(self.get_temp()))
-        # print(self.get_safe_version())
+        # # print(self.get_safe_version())
         # print(self.get_app_version())
 
+        # # unused = self.get_raw_power_scan()
+        # # for freq in [194150, 194100, 194050, 194000, 193950, 193900, 193850]:
+        # for freq in xrange(193850, 194050, 1):
+        #     # power = self.get_freq_power(freq)
+        #     # print("Power for {}: {}".format(freq, power))
+
+        #     wl = frequency_to_wavelen_precise(freq)
+        #     power = self.get_wavelen_power(wl)
+        #     print("{} {}".format(freq, power))
+
+        # for wl in [1544.92, 1545.32, 1545.72]:
+
     def run_cmd_status(self, cmdname, data=b"", instance=None):
-        send_cmd(self.device, cmdname, data, instance, debug=self.debug)
-        respfmt = commands[cmdname][5]
+        if cmdname not in self.commands:
+            return jerror.EBADCMD, b""
+
+        # XXX really need to catch any errors here and return an error instead to match API.
+
+        try:
+            send_cmd(self.device, self.commands, cmdname, data, instance, debug=self.debug)
+        except AssertionError:
+            return jerror.EBADCMD
+
+        respfmt = self.commands[cmdname][5]
         if not respfmt:
             unused, error, data = read_var_resp(self.device)
         else:
@@ -312,7 +390,21 @@ class OCM (object):
             if extra:
                 print("Got {} extra leftover bytes".format(len(extra)))
 
+    def is_safe_mode (self, idn=None):
+        if idn is None:
+            idn = self.get_idn_data()
+        for elm in idn:
+            if "safe" in elm.lower():
+                return True
+        return False
+
+    def set_factory_default (self):
+        "Set all configurable paramters to factory defaults"
+        self.run_cmd("SET-FACTORY-DEFAULT")
+
     def reset (self):
+        if self.devtype != DEVTYPE_4PORT:
+            return self.set_factory_default()
         self.run_cmd("RESET")
         assert not self.drain_serial_read_queue()
 
@@ -331,6 +423,16 @@ class OCM (object):
     def get_idn_data (self):
         return self.get_idn_string().split(",")
 
+    def get_device_type (self):
+        types = {
+            DEVTYPE_4PORT: "ocm-4-port",
+            DEVTYPE_TFOCM: "tf-ocm-1-port",
+        }
+        try:
+            return types[self.devtype]
+        except KeyError:
+            return "unknown"
+
     def get_oper_mode (self):
         idn = self.get_idn_data()
         oper_mode = "safe-mode" if idn[2] == "SafeImage" else "application-mode"
@@ -340,6 +442,7 @@ class OCM (object):
         self.run_cmd("START-SELF-TEST")
 
     def get_safe_version (self):
+        assert self.devtype == DEVTYPE_4PORT
         return "{}.{}.{}".format(*unpack_data_words(self.run_cmd("GET-SAFE-VERSION")))
 
     def get_app_version (self):
@@ -359,9 +462,42 @@ class OCM (object):
         return unpack_data_words(self.run_cmd("GET-MODULE-TEMP"))[0]
 
     def get_module_info (self):
-        return unpack_data_string(self.run_cmd("GET-MODULE-INFO"))
+        data = unpack_data_words(self.run_cmd("GET-MODULE-INFO"))
+        import pdb
+        pdb.set_trace()
+        return data
+
+    def get_raw_power_scan (self, hires=False):
+        assert self.devtype == DEVTYPE_TFOCM
+        resolution = 2 if hires else 1
+        data = self.run_cmd("GET-RAW-POWER-DATA", struct.pack(">H", resolution))
+        spoints = unpack_signed(data)
+        return spoints
+
+    def get_freq_power (self, freq):
+        "Get power level of a frequency in GHz"
+        assert self.devtype == DEVTYPE_TFOCM
+        val = int(frequency_to_wavelen_precise(int(freq)) * 1000)
+        msw = (val >> 16) & 0xFFFF
+        lsw = (val & 0xFFFF)
+        # This seems to ignore our resolution request and always returns low
+        data = self.run_cmd("GET-SINGLE-POWER", struct.pack(">HHHH", 1, msw, lsw, 2))
+        power = Power(unpack_signed(data)[0] / 10)
+        return power
+
+    def get_wavelen_power (self, wavelen):
+        "Get power level of a wavelen in nanometers (non-int ok)"
+        assert self.devtype == DEVTYPE_TFOCM
+        val = int(wavelen * 1000)
+        msw = (val >> 16) & 0xFFFF
+        lsw = (val & 0xFFFF)
+        data = self.run_cmd("GET-SINGLE-POWER", struct.pack(">HHHH", 2, msw, lsw, 2))
+
+        power = Power(unpack_signed(data)[0] / 100)
+        return power
 
     def get_channel_profile (self, profile_id):
+        assert self.devtype == DEVTYPE_4PORT
         data = self.run_cmd("READ-PROFILE", instance=profile_id)
         nchan = struct.unpack(">H", data[:2])[0]
         data = data[2:]
@@ -373,7 +509,50 @@ class OCM (object):
         freqlist = zip(freqlist[::2], freqlist[1::2])
         return freqlist
 
+    def get_itu_scan (self, hires):
+        assert self.devtype == DEVTYPE_TFOCM
+        hival = 2 if hires else 1
+        data = self.run_cmd("FULL-ITU-SCAN", struct.pack(">H", hival))
+        if hires:
+            size = 512
+            # XXX this is probably msw lsw of channel wavelen
+            words = unpack_unsigned(data[:size])
+            it = iter(words)
+            uints = [ (((msw & 0xFFFF) << 16) + (lsw & 0xFFFF)) for msw, lsw in zip(it, it) ]
+            frequency = [ wavelen_to_frequency(float(x) / 1000.0) if x > 0 else 0 for x in uints ]
+            # frequency = [ float(x) / 1000.0 if x > 0 else 0 for x in uints ]
+        else:
+            size = 256
+            # frequency = [ wavelen_to_frequency(((x / 100.0) + 1500) if x > 0 else 0 for x in unpack_unsigned(data[:size]) ]
+            frequency = [ wavelen_to_frequency((float(x) / 100.0) + 1500.0) for x in unpack_unsigned(data[:size]) ]
+            # frequency = [ (float(x) / 100.0) + 1500.0 for x in unpack_unsigned(data[:size]) ]
+            # frequency = unpack_unsigned(data[:size])
+
+        data = data[size:]
+        presence = unpack_unsigned(data[:256])
+        data = data[256:]
+        if hires:
+            power = [ Power(x / 100) for x in unpack_signed(data[:256]) ]
+        else:
+            power = [ Power(x / 10) for x in unpack_signed(data[:256]) ]
+        return zip(frequency, presence, power)
+
+    def get_itu_power_scan (self, hires):
+        assert self.devtype == DEVTYPE_TFOCM
+        hival = 2 if hires else 1
+        data = self.run_cmd("FULL-ITU-POWER-SCAN", struct.pack(">H", hival))
+        if hires:
+            power = [ Power(x / 100) for x in unpack_signed(data[:256]) ]
+        else:
+            power = [ Power(x / 10) for x in unpack_signed(data[:256]) ]
+
+        # XXX Are the start and stop frequency or the interval affected by the user settings?
+        # or always constant b/c it's the ITU variant of the commands
+        return zip(xrange(TFOCM_DEFAULT_START_FREQ, TFOCM_DEFAULT_STOP_FREQ + 1, 50),
+                   power)
+
     def get_full_scan (self, instance=0b1111):
+        assert self.devtype == DEVTYPE_4PORT
         data = self.run_cmd("FULL-SPECTRUM-SCAN", instance=instance)
 
         nports = struct.unpack(">H", data[0:2])[0]
@@ -411,6 +590,7 @@ class OCM (object):
         return result
 
     def get_full_125_scan (self, instance=0b1111):
+        assert self.devtype == DEVTYPE_4PORT
         data = self.run_cmd("FULL-12-SCAN", instance=instance)
 
         nports = struct.unpack(">H", data[0:2])[0]
@@ -450,6 +630,7 @@ class OCM (object):
         return result
 
     def dump_channel_scan (self):
+        assert self.devtype == DEVTYPE_4PORT
         data = struct.pack(">HHHH", 2, 2, 2, 2)
         data = self.run_cmd("FULL-12-CH-SCAN", data=data, instance=0b1111)
 
@@ -494,6 +675,7 @@ class OCM (object):
             port += 1
 
     def dump_spectral_density (self):
+        assert self.devtype == DEVTYPE_4PORT
         data = struct.pack(">HHHH", 2, 2, 2, 2)
         data = self.run_cmd("SCAN-SPEC-DENSITY", data=data, instance=0b1111)
 
@@ -524,11 +706,13 @@ class OCM (object):
             port += 1
 
     def read_channel_profile (self):
+        assert self.devtype == DEVTYPE_4PORT
         # XXX errors?
         for profile_id in range(1, 16):
             pass
 
     def write_channel_profile (self):
+        assert self.devtype == DEVTYPE_4PORT
         freqlist = []
         nchan = 0
         for freq in range(11000, 61000, 1000):
