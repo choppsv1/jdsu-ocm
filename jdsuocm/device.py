@@ -341,7 +341,7 @@ class OCM (object):
 
         # # unused = self.get_raw_power_scan()
         # # for freq in [194150, 194100, 194050, 194000, 193950, 193900, 193850]:
-        # for freq in xrange(193850, 194050, 1):
+        # for freq in range(193850, 194050, 1):
         #     # power = self.get_freq_power(freq)
         #     # print("Power for {}: {}".format(freq, power))
 
@@ -418,7 +418,7 @@ class OCM (object):
         assert (wlen % 2) == 0
         wlen = wlen // 2
         data = "".join([ chr(x) for x in struct.unpack(">" + str(wlen) + "H", wordstring) ])
-        return data.decode('ascii')
+        return data.encode('ascii').decode('ascii')
 
     def get_idn_data (self):
         return self.get_idn_string().split(",")
@@ -548,7 +548,7 @@ class OCM (object):
 
         # XXX Are the start and stop frequency or the interval affected by the user settings?
         # or always constant b/c it's the ITU variant of the commands
-        return zip(xrange(TFOCM_DEFAULT_START_FREQ, TFOCM_DEFAULT_STOP_FREQ + 1, 50),
+        return zip(range(TFOCM_DEFAULT_START_FREQ, TFOCM_DEFAULT_STOP_FREQ + 1, 50),
                    power)
 
     def get_full_scan (self, instance=0b1111):

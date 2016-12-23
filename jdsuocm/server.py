@@ -197,6 +197,7 @@ class NetconfServer (object):
     def _rpc_full_scan (self, method, rpc, *params):
         # No input values yet
         if params:
+            logging.error("%s: _rpc_full_scan got unexpected params", str(self))
             raise ncerror.RPCSvrErrBadMsg(rpc)
 
         rv = self._run_device_method(rpc, method)

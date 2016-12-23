@@ -33,6 +33,7 @@ def main (*margs):
     parser = argparse.ArgumentParser("JDSU-Scan to CSV")
 
     parser.add_argument("--full-125", action="store_true", help="Do 12.5GHz scan otherwise normal full.")
+    parser.add_argument("--full-itu", action="store_true", help="Do ITU scan on single port.")
     parser.add_argument("--host", default="localhost", help="The host to connect to (default: localhost)")
     parser.add_argument("--port", type=int, default=9931, help="The port to connect to (default: 9931)")
     parser.add_argument("--scan-port", type=int, default=None, help="The port to scan")
@@ -57,6 +58,8 @@ def main (*margs):
     try:
         if args.full_125:
             unused, reply, unused = session.send_rpc("""<full-125-scan/>""")
+        elif args.full_itu:
+            unused, reply, unused = session.send_rpc("""<full-itu-scan><high-resolution>true</high-resolution></full-itu-scan>""")
         else:
             unused, reply, unused = session.send_rpc("""<full-scan/>""")
     except Exception as ex:
@@ -65,6 +68,16 @@ def main (*margs):
 
     if reply is None:
         logging.error("Scan failed")
+    elif args.full_itu:
+        freqlist = reply.findall("*/j:point/j:frequency", namespaces=NSMAP)
+        freqlist = [ x.text for x in freqlist if x is not None and x.text]
+
+        powerlist = reply.findall("*/j:point/j:power", namespaces=NSMAP)
+        powerlist = [ x.text for x in powerlist if x is not None and x.text]
+
+        with open(args.output_prefix + ".csv", "w") as output:
+            for x, y in zip(freqlist, powerlist):
+                output.write("{}\t{}\n".format(x, y))
     else:
         if args.scan_port is not None:
             start, end = args.scan_port, args.scan_port + 1
