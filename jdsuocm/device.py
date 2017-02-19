@@ -311,7 +311,7 @@ class OCM (object):
         self.commands = dict(commands_common.items())
 
         idn = self.get_idn_data()
-        if idn[4] == 'cal04':
+        if len(idn) > 4 and idn[4] == 'cal04':
             self.devtype = DEVTYPE_4PORT
             self.nports = 4
             self.commands.update(commands_4port.items())

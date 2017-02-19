@@ -29,7 +29,7 @@ def read(fname):
     return open(os.path.join(os.path.dirname(__file__), fname)).read()
 
 setup (name='jdsuocm',
-       version='0.1.1',
+       version='0.2.0',
        description='JDSU OCM',
        long_description=read("README.rst"),
        author='Christian E. Hopps',
