@@ -54,8 +54,10 @@ class NetconfServer (object):
         assert idn[4] == "cal04" or idn[4] == "cal02"
         if idn[4] == "cal04":
             self.nports = 4
+            self.is_tfm = False
         else:
             self.nports = 1
+            self.is_tfm = True
 
         self.device = device
         self.device_lock = threading.Lock()
@@ -229,18 +231,28 @@ class NetconfServer (object):
             raise ncerror.RPCSvrMissingElement(rpc, ncutil.elm("nc:running"))
 
         config = ncutil.elm("data")
-        for idx in range(1, 17):
-            profile_elm = ncutil.elm("j:channel-profile")
+
+        if self.is_tfm:
+            profile_elm = ncutil.elm("j:scan-profile")
             config.append(profile_elm)
-            profile_elm.append(ncutil.leaf_elm("j:profile-index", idx))
+            profile_elm.append(ncutil.leaf_elm("j:channel-spacing",
+                                               self.device.get_channel_spacing()))
+            profile_elm.append(ncutil.leaf_elm("j:frequency-start",
+                                               self.device.get_start_freq()))
+            profile_elm.append(ncutil.leaf_elm("j:frequency-end",
+                                               self.device.get_stop_freq()))
+        else:
+            for idx in range(1, 17):
+                profile_elm = ncutil.elm("j:channel-profile")
+                config.append(profile_elm)
+                profile_elm.append(ncutil.leaf_elm("j:profile-index", idx))
 
-            channels = self.device.get_channel_profile(idx)
-            for freqs, freqe in channels:
-                channel_elm = ncutil.subelm(profile_elm, "j:channel")
-                range_elm = ncutil.subelm(channel_elm, "j:range")
-                range_elm.append(ncutil.leaf_elm("j:frequency-start", freqs))
-                range_elm.append(ncutil.leaf_elm("j:frequency-end", freqe))
-
+                channels = self.device.get_channel_profile(idx)
+                for freqs, freqe in channels:
+                    channel_elm = ncutil.subelm(profile_elm, "j:channel")
+                    range_elm = ncutil.subelm(channel_elm, "j:range")
+                    range_elm.append(ncutil.leaf_elm("j:frequency-start", freqs))
+                    range_elm.append(ncutil.leaf_elm("j:frequency-end", freqe))
         return config
 
     def rpc_get (self, unused_session, unused_rpc, filter_elm):

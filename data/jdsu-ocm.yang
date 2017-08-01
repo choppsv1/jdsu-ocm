@@ -115,7 +115,26 @@ module jdsu-ocm {
     }
   }
 
+
+  container scan-profile {
+    when "../ocm-type = tf-ocm-1-port";
+    config true;
+    leaf channel-spacing {
+      description "Channel spacing in GHz";
+      type uint16;
+    }
+    leaf frequency-start {
+      description "Frequency to start scan in GHz";
+      type uint32;
+    }
+    leaf frequency-end {
+      description "Frequency to stop scan in GHz";
+      type uint32;
+    }
+  }
+
   list channel-profile {
+    when "../ocm-type != tf-ocm-1-port";
     key "profile-index";
     config true;
     leaf profile-index {

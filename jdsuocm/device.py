@@ -139,6 +139,7 @@ commands_common = {
 
 }
 
+# Command, Object ID, Instance, Parameter ID, Has Data Params, Response Length
 commands_1port = {
     # Only on single port
     # 6, 6, 7, 7, 8, 8
@@ -147,6 +148,12 @@ commands_1port = {
     # 44, 44, 42, 43, 47, 48, 49, 51 - 54
 
     # data parameter 0 or 1 for low vs high res 512 words of data
+    'GET-START-FREQ':      (2, 21, 1, 0, False, RESP_2W),
+    'SET-START-FREQ':      (1, 21, 1, 1, True, RESP_0W),
+    'GET-STOP-FREQ':       (2, 22, 1, 0, False, RESP_2W),
+    'SET-STOP-FREQ':       (1, 22, 1, 1, True, RESP_0W),
+    'GET-CHAN-SPACING':    (2, 23, 1, 0, False, RESP_1W),
+    'SET-CHAN-SPACING':    (1, 23, 1, 1, True, RESP_0W),
     'GET-RAW-POWER-DATA':  (2, 26, 6, 0, True, RESP_VAR),
     'GET-SINGLE-POWER':    (1, 28, 1, 1, True, RESP_VAR),
     'FULL-ITU-SCAN':       (1, 31, 1, 1, True, RESP_VAR),   # This is the peak measure function
@@ -227,6 +234,20 @@ def unpack_data_words (wordstring):
     assert (wlen % 2) == 0
     wlen = wlen // 2
     return struct.unpack(">" + str(wlen) + "H", wordstring)
+
+
+def unpack_unsigned_longs (wordstring):
+    wlen = len(wordstring)
+    assert (wlen % 4) == 0
+    wlen = wlen // 4
+    return struct.unpack(">" + str(wlen) + "L", wordstring)
+
+
+def unpack_signed_longs (wordstring):
+    wlen = len(wordstring)
+    assert (wlen % 4) == 0
+    wlen = wlen // 4
+    return struct.unpack(">" + str(wlen) + "l", wordstring)
 
 
 def unpack_data_string (wordstring):
@@ -448,12 +469,31 @@ class OCM (object):
     def get_app_version (self):
         return "{}.{}.{}".format(*unpack_data_words(self.run_cmd("GET-APP-VERSION")))
 
+    def get_channel_spacing (self):
+        assert self.devtype == DEVTYPE_TFOCM
+        return unpack_data_words(self.run_cmd("GET-CHAN-SPACING"))[0]
+
+    def set_channe_spacing (self, spacing):
+        logger.debug("XXX get chan spacing")
+        assert self.devtype == DEVTYPE_TFOCM
+        self.run_cmd("SET-CHAN-SPACING", struct.pack(">H", spacing))
+
     def get_fail_reg (self):
         return unpack_data_words(self.run_cmd("READ-FAIL-REG"))[0]
 
     def get_fail_reg_temp (self):
         data = unpack_data_words(self.run_cmd("READ-FAIL-REG-TEMP"))
         return data[0], data[1] / 10
+
+    def get_start_freq (self):
+        logger.debug("XXX get start freq")
+        assert self.devtype == DEVTYPE_TFOCM
+        return unpack_unsigned_longs(self.run_cmd("GET-START-FREQ"))[0]
+
+    def get_stop_freq (self):
+        logger.debug("XXX get stop freq")
+        assert self.devtype == DEVTYPE_TFOCM
+        return unpack_unsigned_longs(self.run_cmd("GET-STOP-FREQ"))[0]
 
     def get_temp (self):
         return unpack_data_words(self.run_cmd("GET-MODULE-TEMP"))[0] / 10
@@ -699,7 +739,7 @@ class OCM (object):
                     print("SPDENSE PORT {}: FRQ: {}\tWVL: "
                           "{}\t Avg Pwr: {}\tMax Pwr: {}".format(port,
                                                                  freq,
-                                                                 frequency_to_wavelen(freq),
+                                                                 frequency_to_wavelen_precise(freq),
                                                                  avgpower,
                                                                  maxpower))
                     f.write("{}\t{}\t{}\n".format(freq, avgpower, maxpower))
